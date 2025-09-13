@@ -82,23 +82,31 @@ class OpenRouterClient:
         # Retry logic for rate limits
         max_retries = 3
         result = None
+        timeout = aiohttp.ClientTimeout(total=60)  # 60 second timeout
         
         for attempt in range(max_retries):
-            async with self.session.post(f"{self.base_url}/chat/completions", 
-                                       headers=headers, json=payload) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    break
-                elif response.status == 429:  # Rate limited
-                    if attempt < max_retries - 1:
-                        wait_time = (2 ** attempt) * 5  # Exponential backoff: 5, 10, 20 seconds
-                        logger.warning(f"Rate limited, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        continue
-                
-                error_text = await response.text()
-                logger.error(f"API Error {response.status}: {error_text}")
-                raise Exception(f"OpenRouter API error: {response.status} - {error_text}")
+            try:
+                async with self.session.post(f"{self.base_url}/chat/completions", 
+                                           headers=headers, json=payload, timeout=timeout) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        break
+                    elif response.status == 429:  # Rate limited
+                        if attempt < max_retries - 1:
+                            wait_time = (2 ** attempt) * 5  # Exponential backoff: 5, 10, 20 seconds
+                            logger.warning(f"Rate limited, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                            await asyncio.sleep(wait_time)
+                            continue
+                    
+                        error_text = await response.text()
+                        logger.error(f"API Error {response.status}: {error_text}")
+                        raise Exception(f"OpenRouter API error: {response.status} - {error_text}")
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout for model {model} on attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+                    continue
+                raise Exception(f"Model {model} timed out after {max_retries} attempts")
         
         if result is None:
             raise Exception("Failed to get valid response after all retries")
@@ -127,8 +135,6 @@ class CBRNDebate:
         self.consensus_threshold = consensus_threshold
         self.seed = seed
         self.use_conversational = use_conversational
-        # Store conversation history for each model
-        self.model_conversations = {model: [] for model in models}
         self.log_full_conversations = False  # Set to False to reduce log size
     
     def _check_consensus(self, responses: List[DebateResponse]) -> Tuple[bool, Optional[str]]:
@@ -151,7 +157,7 @@ class CBRNDebate:
         logger.info(f"Majority vote calculation: {dict(vote_counts)} -> {majority_answer}")
         return majority_answer
     
-    def _create_conversational_prompt(self, question: str, model: str, round_num: int, other_responses: List[DebateResponse] = None) -> List[Dict[str, str]]:
+    def _create_conversational_prompt(self, question: str, model: str, round_num: int, question_conversations: Dict[str, List], other_responses: List[DebateResponse] = None) -> List[Dict[str, str]]:
         """Create conversational messages while extracting key information"""
         
         if round_num == 0:
@@ -167,12 +173,12 @@ class CBRNDebate:
                 }
             ]
             # Store initial conversation
-            self.model_conversations[model] = messages.copy()
+            question_conversations[model] = messages.copy()
             return messages
         
         else:
             # Get existing conversation
-            messages = self.model_conversations[model].copy()
+            messages = question_conversations[model].copy()
             
             # Extract key points from other models (curated)
             other_points = []
@@ -191,7 +197,7 @@ class CBRNDebate:
             messages.append({"role": "user", "content": update_message})
             
             # Update stored conversation
-            self.model_conversations[model] = messages.copy()
+            question_conversations[model] = messages.copy()
             return messages
     
     def _create_debate_prompt(self, question: str, model: str, debate_history: List[List[DebateResponse]], round_num: int) -> str:
@@ -363,6 +369,9 @@ QUESTIONS: [optional questions for other models if you disagree]"""
         logger.info(f"\n{'='*50}")
         logger.info(f"Starting debate for question: {question[:100]}...")
         
+        # Create separate conversation history for this specific question
+        question_conversations = {model: [] for model in self.models}
+        
         individual_answers = {}
         debate_history = []
         
@@ -374,7 +383,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
             
             for model in self.models:
                 if self.use_conversational:
-                    messages = self._create_conversational_prompt(question, model, 0)
+                    messages = self._create_conversational_prompt(question, model, 0, question_conversations)
                     task = client.query_model(model, messages, self.seed)
                 else:
                     prompt = self._create_debate_prompt(question, model, [], 0)
@@ -390,14 +399,14 @@ QUESTIONS: [optional questions for other models if you disagree]"""
                     
                     # Update conversation history with the model's response
                     if self.use_conversational:
-                        self.model_conversations[model].append({"role": "assistant", "content": response_text})
+                        question_conversations[model].append({"role": "assistant", "content": response_text})
                         
                         # Log the complete conversation for this model
                         if self.log_full_conversations:
                             logger.info(f"\n{'='*60}")
                             logger.info(f"COMPLETE CONVERSATION - {model.split('/')[-1]} - Round {0}")
                             logger.info(f"{'='*60}")
-                            for i, msg in enumerate(self.model_conversations[model]):
+                            for i, msg in enumerate(question_conversations[model]):
                                 logger.info(f"Message {i+1} ({msg['role']}):")
                                 logger.info(f"{msg['content']}")
                                 logger.info(f"{'-'*40}")
@@ -433,7 +442,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
                     if self.use_conversational:
                         # Get the most recent responses from other models
                         latest_round = debate_history[-1] if debate_history else []
-                        messages = self._create_conversational_prompt(question, model, round_num, latest_round)
+                        messages = self._create_conversational_prompt(question, model, round_num, question_conversations, latest_round)
                         task = client.query_model(model, messages, self.seed)
                     else:
                         prompt = self._create_debate_prompt(question, model, debate_history, round_num)
@@ -448,14 +457,14 @@ QUESTIONS: [optional questions for other models if you disagree]"""
                         
                         # Update conversation history with the model's response
                         if self.use_conversational:
-                            self.model_conversations[model].append({"role": "assistant", "content": response_text})
+                            question_conversations[model].append({"role": "assistant", "content": response_text})
                             
                             # Log the complete conversation for this model
                             if self.log_full_conversations:
                                 logger.info(f"\n{'='*60}")
                                 logger.info(f"COMPLETE CONVERSATION - {model.split('/')[-1]} - Round {round_num}")
                                 logger.info(f"{'='*60}")
-                                for i, msg in enumerate(self.model_conversations[model]):
+                                for i, msg in enumerate(question_conversations[model]):
                                     logger.info(f"Message {i+1} ({msg['role']}):")
                                     logger.info(f"{msg['content']}")
                                     logger.info(f"{'-'*40}")
@@ -491,7 +500,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
             # Save full conversations to separate files for detailed analysis
             if self.use_conversational and self.log_full_conversations:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                for model, conversation in self.model_conversations.items():
+                for model, conversation in question_conversations.items():
                     model_name = model.split('/')[-1]
                     filename = f"conversation_{model_name}_{timestamp}.json"
                     with open(filename, 'w') as f:
@@ -648,7 +657,7 @@ async def main():
     ds = load_dataset("yujunzhou/LabSafety_Bench", "MCQ")
     
     # Access dataset correctly - select method works better than slicing
-    qa_dataset = ds["QA"].select(range(50))  # Get first 5 questions
+    qa_dataset = ds["QA"]  # Get first 5 questions for testing
     
     questions = qa_dataset["Question"]
     correct_answers = qa_dataset["Correct Answer"]
@@ -656,14 +665,14 @@ async def main():
     logger.info(f"Loaded {len(questions)} questions from LabSafety_Bench")
     
     # Run debates with fixed seed for reproducibility
-    seed = 42  # Fixed seed for reproducible results
+    seed = 9216 #[7649, 7124, 3405, 9624] # 5 randomly generated ones
     debate = CBRNDebate(models, api_key, max_rounds=5, consensus_threshold=1.0, seed=seed)
     
     # Parallelization options:
     # parallel_questions = 1  # Sequential (default, safest)
     # parallel_questions = 3  # Process 3 questions in parallel (recommended)
     # parallel_questions = 0  # Process ALL questions in parallel (fastest but risky)
-    parallel_questions = 0  # Conservative parallel processing
+    parallel_questions = 15  # Conservative parallel processing
     
     results = await debate.run_benchmark(questions, parallel_questions=parallel_questions)
     logger.info(f"Using seed: {seed} for reproducible results")
