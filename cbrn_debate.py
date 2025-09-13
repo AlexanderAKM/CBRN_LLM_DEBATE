@@ -17,7 +17,7 @@ from datasets import load_dataset
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed to DEBUG to see raw responses
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(f'cbrn_debate_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
@@ -164,6 +164,9 @@ QUESTIONS: [optional questions for other models if you disagree]"""
     
     def _parse_response(self, response: str, model: str, round_num: int) -> DebateResponse:
         """Parse model response into structured format"""
+        # Log the raw response for debugging
+        logger.debug(f"Raw response from {model.split('/')[-1]}: {response[:200]}...")
+        
         lines = response.strip().split('\n')
         answer = explanation = ""
         questions = []
@@ -189,10 +192,20 @@ QUESTIONS: [optional questions for other models if you disagree]"""
             elif current_section == "questions" and line:
                 questions.append(line)
         
-        # Handle empty answers
+        # Handle empty answers - try alternative parsing
         if not answer:
-            logger.warning(f"Model {model.split('/')[-1]} Round {round_num}: No valid answer found, defaulting to A")
-            answer = "A"
+            logger.warning(f"Model {model.split('/')[-1]} Round {round_num}: Standard parsing failed")
+            logger.warning(f"Raw response was: {response}")
+            
+            # Try alternative parsing - look for any A, B, C, D in the response
+            answer = self._extract_mcq_answer(response)
+            
+            # If still no answer, default to A
+            if not answer:
+                logger.warning(f"Model {model.split('/')[-1]} Round {round_num}: No valid answer found anywhere, defaulting to A")
+                answer = "A"
+            else:
+                logger.info(f"Model {model.split('/')[-1]} Round {round_num}: Found answer {answer} via alternative parsing")
         
         logger.info(f"Model {model.split('/')[-1]} Round {round_num}: {answer} - {explanation[:100] if explanation else 'No explanation'}...")
         
@@ -206,13 +219,37 @@ QUESTIONS: [optional questions for other models if you disagree]"""
     
     def _extract_mcq_answer(self, raw_answer: str) -> str:
         """Extract A, B, C, or D from response"""
+        if not raw_answer:
+            return ""
+            
         raw_answer = raw_answer.upper().strip()
+        
+        # Try multiple patterns to find the answer
+        patterns = [
+            # Direct letter
+            r'\b([ABCD])\b',
+            # "Answer: A" or "The answer is A"
+            r'ANSWER\s*:?\s*([ABCD])',
+            r'THE\s+ANSWER\s+IS\s*:?\s*([ABCD])',
+            # "Option A" or "Choice A"  
+            r'(?:OPTION|CHOICE)\s*([ABCD])',
+            # "A)" or "(A)"
+            r'(?:\()?([ABCD])(?:\))?',
+        ]
+        
+        import re
+        for pattern in patterns:
+            match = re.search(pattern, raw_answer)
+            if match:
+                return match.group(1)
+        
+        # Last resort: look for any A, B, C, D in order of preference
         for letter in ['A', 'B', 'C', 'D']:
             if letter in raw_answer:
                 return letter
-        # Fallback if no valid answer found
-        logger.warning(f"No valid MCQ answer found in: {raw_answer}")
-        return "A"  # Default fallback
+                
+        # No answer found
+        return ""
     
     async def run_debate(self, question: str) -> DebateResult:
         """Run complete multi-round debate for a single question"""
@@ -357,8 +394,8 @@ async def main():
     models = [
         "qwen/qwen-2.5-72b-instruct",          # ✅ Working
         "meta-llama/llama-3.1-70b-instruct",   # Alternative (from error message)
-        "qwen/qwq-32b",                        # Corrected name (from error message)
-        "qwen/qwen-2.5-coder-32b-instruct",    # ✅ Working  
+        #"qwen/qwen-32b",                        # Corrected name (from error message)
+        "qwen/qwen-2.5-72B-instruct:free",    # ✅ Working  
         "meta-llama/llama-3.1-8b-instruct"     # Alternative (from error message)
     ]
     
