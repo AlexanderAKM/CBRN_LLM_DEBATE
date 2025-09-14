@@ -1,61 +1,121 @@
 # CBRN LLM Debate System
 
-A clean, concise implementation for multi-round LLM debates on CBRN (Chemical, Biological, Radiological, Nuclear) safety questions using the LabSafety_Bench dataset.
+A research tool for multi-round AI debates on CBRN (Chemical, Biological, Radiological, Nuclear) safety questions using the LabSafety_Bench dataset.
 
 ## Overview
 
-This system tests whether collective decision-making through debate makes LLMs safer on CBRN topics compared to individual responses. It runs structured debates where models can see each other's answers and reasoning, potentially changing their minds through discussion.
+This system investigates whether collective decision-making through debate makes LLMs safer on CBRN topics compared to individual responses. It orchestrates structured debates where AI models can see each other's reasoning and potentially change their minds through discussion.
 
 ## Key Features
 
-- **Multi-round debates** with 5 Qwen models via OpenRouter API
-- **Strict multiple choice** format (A/B/C/D answers only)
-- **Consensus detection** (100% agreement) or majority voting fallback
-- **Comprehensive logging** of all debate rounds and reasoning
-- **Safety score comparison** between individual vs collective decisions
-- **Detailed output** with JSON export and timestamped logs
+- **Multi-round debates** with configurable AI models via OpenRouter API
+- **Conversational memory** - models remember their own responses like ChatGPT
+- **Safety-focused prompting** - explicit guidance to converge on truthful, safe answers
+- **Consensus detection** or majority voting for final decisions
+- **Parallel processing** for efficient batch processing
+- **Command-line configuration** - fully customizable via arguments
+- **Comprehensive results** with JSON export and safety scoring
 
-## Setup
+## Quick Start
 
-1. **Install dependencies:**
+### 1. Get an OpenRouter API Key
+
+1. Go to [OpenRouter.ai](https://openrouter.ai/)
+2. Sign up for an account
+3. Navigate to "Keys" in your dashboard
+4. Create a new API key
+5. Add credits to your account (typically $5-10 is enough for testing)
+
+### 2. Set Your API Key
+
+**Windows (Command Prompt):**
+```cmd
+set OPENROUTER_API_KEY=sk-or-v1-your-actual-key-here
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:OPENROUTER_API_KEY="sk-or-v1-your-actual-key-here"
+```
+
+**Linux/Mac (Bash):**
+```bash
+export OPENROUTER_API_KEY="sk-or-v1-your-actual-key-here"
+```
+
+**Persistent Setup (Recommended):**
+
+Create a `.env` file in your project directory:
+```bash
+echo "OPENROUTER_API_KEY=sk-or-v1-your-actual-key-here" > .env
+```
+
+Or add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
+```bash
+export OPENROUTER_API_KEY="sk-or-v1-your-actual-key-here"
+```
+
+### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-2. **Set your OpenRouter API key:**
-```bash
-# Windows
-set OPENROUTER_API_KEY=your_api_key_here
-
-# Linux/Mac
-export OPENROUTER_API_KEY="your_api_key_here"
-```
-
-3. **Login to Hugging Face (for dataset access):**
+### 4. Login to Hugging Face
 ```bash
 huggingface-cli login
 ```
 
-## Usage
-
-Run the debate system:
+### 5. Run the System
 ```bash
+# Default run (5 models, 15 questions in parallel)
 python cbrn_debate.py
+
+# Test with fewer questions
+python cbrn_debate.py --limit 5
+
+# Use different models
+python cbrn_debate.py --models "anthropic/claude-3-haiku" "openai/gpt-4o-mini"
 ```
 
-This will:
-- Load CBRN safety questions from LabSafety_Bench
-- Run debates with 5 Qwen models
-- Generate comprehensive logs and results
+## Command-Line Options
 
-## Models Used
+The system is fully configurable via command-line arguments:
 
-The system uses 5 different Qwen models:
-- `qwen/qwen-2.5-72b-instruct` (largest, most capable)
-- `qwen/qwen-2-72b-instruct` (previous generation)
-- `qwen/qwq-32b-preview` (reasoning-focused)
-- `qwen/qwen-2.5-coder-32b-instruct` (code-oriented)
-- `qwen/qwen-2.5-14b-instruct` (smaller, faster)
+```bash
+python cbrn_debate.py [OPTIONS]
+```
+
+**Available Options:**
+- `--models MODEL1 MODEL2 ...` - AI models to use (default: 5 diverse models)
+- `--max-rounds N` - Maximum debate rounds (default: 5)
+- `--consensus-threshold X` - Consensus threshold 0.0-1.0 (default: 1.0 = 100%)
+- `--seed N` - Random seed for reproducibility (default: 9216)
+- `--parallel N` - Questions to process in parallel (default: 15)
+- `--limit N` - Limit number of questions for testing
+
+**Example Usage:**
+```bash
+# Quick test with 3 questions
+python cbrn_debate.py --limit 3
+
+# Use only 2 models, sequential processing
+python cbrn_debate.py --models "anthropic/claude-3-haiku" "openai/gpt-4o-mini" --parallel 1
+
+# Require only 80% agreement for consensus
+python cbrn_debate.py --consensus-threshold 0.8
+
+# Limit to 3 rounds maximum
+python cbrn_debate.py --max-rounds 3
+```
+
+## Default Models
+
+The system uses these 5 diverse AI models by default:
+- `meta-llama/llama-3.3-70b-instruct` - Meta's latest Llama model
+- `qwen/qwen-2.5-72b-instruct` - Qwen's flagship model  
+- `google/gemini-2.0-flash-001` - Google's Gemini
+- `anthropic/claude-3-haiku` - Anthropic's efficient model
+- `openai/gpt-4o-mini` - OpenAI's compact model
 
 ## How the Debate Works
 
@@ -107,23 +167,28 @@ Collective vs Average Individual: +15.0% difference
 Collective is SAFER
 ```
 
-## Configuration
+## API Key Troubleshooting
 
-Edit `main()` function in `cbrn_debate.py` to customize:
+**Common Issues:**
 
-```python
-# Change models
-models = ["your/preferred/models"]
+1. **"OPENROUTER_API_KEY environment variable required"**
+   - Make sure you've set the environment variable correctly
+   - Restart your terminal/command prompt after setting it
+   - Check the key starts with `sk-or-v1-`
 
-# Adjust consensus threshold (1.0 = 100% agreement)
-consensus_threshold = 0.8  # 80% agreement
+2. **API Authentication Errors**
+   - Verify your key is correct at [OpenRouter.ai](https://openrouter.ai/keys)
+   - Ensure you have credits in your account
+   - Some models require special access - check model availability
 
-# Change max rounds
-max_rounds = 3
+3. **Rate Limiting**
+   - Reduce `--parallel` value (try `--parallel 5` or `--parallel 1`)
+   - The system automatically pauses between batches
 
-# Test more/fewer questions
-data_subset = ds["QA"][:10]  # Test 10 questions
-```
+**Cost Estimation:**
+- Typical cost: $0.01-0.05 per question per model
+- Default run (15 questions, 5 models): ~$0.75-4.00
+- Use `--limit 3` for testing to minimize costs
 
 ## Research Questions
 
