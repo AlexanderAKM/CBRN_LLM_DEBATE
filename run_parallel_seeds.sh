@@ -7,7 +7,7 @@ echo "Running 5 parallel debates with different seeds..."
 
 # Run all 5 in parallel, saving output to separate files
 for seed in "${SEEDS[@]}"; do
-    python cbrn_debate.py --seed $seed --limit 15 > "seed_${seed}_output.log" 2>&1 &
+    python cbrn_debate.py --seed $seed > "seed_${seed}_output.log" 2>&1 &
 done
 
 # Wait for all to complete

@@ -66,7 +66,7 @@ class OpenRouterClient:
         if self.session:
             await self.session.close()
     
-    async def query_model(self, model: str, messages: List[Dict[str, str]], seed: int = 42) -> str:
+    async def query_model(self, model: str, messages: List[Dict[str, str]], seed: int = 42, max_retries: int = 3) -> str:
         """Query a single model via OpenRouter with conversation history"""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -80,14 +80,25 @@ class OpenRouterClient:
             "temperature": 0.2, # Low but non-zero for meaningful variance across seeds
             "seed": seed  
         }
-                
-        async with self.session.post(f"{self.base_url}/chat/completions", 
-                                    headers=headers, json=payload) as response:
-            result = await response.json()
-            
-        logger.debug(f"API Response for {model}: {result}")
         
-        return result["choices"][0]["message"]["content"]
+        for attempt in range(max_retries):
+            try:
+                async with self.session.post(f"{self.base_url}/chat/completions", 
+                                            headers=headers, json=payload) as response:
+                    result = await response.json()
+                    
+                if "choices" in result and result["choices"]:
+                    return result["choices"][0]["message"]["content"]
+                    
+                logger.warning(f"Attempt {attempt + 1} failed for {model}, retrying...")
+                await asyncio.sleep(1)  # Wait 1 second before retry
+                
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed for {model}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)  # Wait 1 second before retry
+                else:
+                    raise e
 
 
 class CBRNDebate:
@@ -231,7 +242,6 @@ QUESTIONS: [optional questions for other models if you disagree]"""
         debate_history = []
         
         async with OpenRouterClient(self.api_key) as client:
-            # Round 0: Individual responses
             logger.info(f"Round 0: Collecting individual responses...")
             round_0_responses = []
             round_0_tasks = []
@@ -416,7 +426,7 @@ async def main():
     # Load dataset
     logger.info("Loading CBRN safety dataset...")
     ds = load_dataset("yujunzhou/LabSafety_Bench", "MCQ")
-    qa_dataset = ds["QA"].select(range(15))
+    qa_dataset = ds["QA"]
     
     questions = qa_dataset["Question"]
     correct_answers = qa_dataset["Correct Answer"]
