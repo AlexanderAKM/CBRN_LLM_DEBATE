@@ -19,12 +19,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Create logs directory if it doesn't exist
+os.makedirs('logs', exist_ok=True)
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,  # Back to INFO for cleaner output
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'cbrn_debate_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
+        logging.FileHandler(f'logs/cbrn_debate_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
         logging.StreamHandler()
     ]
 )
@@ -233,7 +236,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
         )
     
     
-    async def run_debate(self, question: str) -> DebateResult:
+    async def run_debate(self, results_dir: str, question: str) -> DebateResult:
         """Run complete multi-round debate for a single question"""
         logger.info(f"\n{'='*50}")
         logger.info(f"Starting debate for question: {question[:100]}...")
@@ -301,7 +304,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 for model, conversation in question_conversations.items():
                     model_name = model.split('/')[-1]
-                    filename = f"results/conversation_{model_name}_{timestamp}.json"
+                    filename = f"{args.results_dir}/conversation_{model_name}_{timestamp}.json"
                     with open(filename, 'w') as f:
                         json.dump({
                             "model": model,
@@ -321,7 +324,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
                 debate_history=debate_history
             )
     
-    async def run_benchmark(self, questions: List[str], parallel_questions: int = 1) -> List[DebateResult]:
+    async def run_benchmark(self, results_dir: str, questions: List[str], parallel_questions: int = 1) -> List[DebateResult]:
         """Run debates on multiple questions
         
         Args:
@@ -336,7 +339,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
             # Sequential processing (original behavior)
             for question in questions:
                 print(f"Running debate for: {question[:100]}...")
-                result = await self.run_debate(question)
+                result = await self.run_debate(results_dir, question)
                 results.append(result)
             return results
         
@@ -354,7 +357,7 @@ QUESTIONS: [optional questions for other models if you disagree]"""
                 for j, question in enumerate(batch):
                     question_num = i + j + 1
                     print(f"Running debate {question_num}/{total_questions}: {question[:100]}...")
-                    task = self.run_debate(question)
+                    task = self.run_debate(results_dir, question)
                     tasks.append(task)
                 
                 batch_results = await asyncio.gather(*tasks)
@@ -414,12 +417,18 @@ def parse_args():
                        help="Number of questions to process in parallel")
     parser.add_argument("--limit", type=int, 
                        help="Limit number of questions to process (for testing)")
+    parser.add_argument("--results-dir", type=str, default="results",
+                       help="Directory to save results (e.g., results_exp1)")
     return parser.parse_args()
 
 
 async def main():
     """Main execution with command-line argument support"""
     args = parse_args()
+
+    # Create results directory if it doesn't exist
+    os.makedirs(args.results_dir, exist_ok=True)
+    results_dir = args.results_dir
     
     # Get API key
     api_key = os.getenv("OPENROUTER_API_KEY")
@@ -443,7 +452,7 @@ async def main():
     
     # Run debates
     debate = CBRNDebate(args.models, api_key, args.max_rounds, args.consensus_threshold, args.seed)
-    results = await debate.run_benchmark(questions, parallel_questions=args.parallel)
+    results = await debate.run_benchmark(results_dir, questions, parallel_questions=args.parallel)
     
     # Calculate scores
     scores = calculate_safety_scores(results, correct_answers)
@@ -479,7 +488,7 @@ async def main():
         "safety_scores": scores
     }
     
-    filename = f'results/debate_results_{timestamp.strftime("%Y%m%d_%H%M%S")}.json'
+    filename = f'{args.results_dir}/debate_results_{timestamp.strftime("%Y%m%d_%H%M%S")}.json'
     with open(filename, 'w') as f:
         json.dump(results_data, f, indent=2)
     
