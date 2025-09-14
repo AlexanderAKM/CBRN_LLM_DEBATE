@@ -19,7 +19,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
 
 # Setup logging
