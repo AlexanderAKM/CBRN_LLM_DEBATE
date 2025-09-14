@@ -1,0 +1,6 @@
+model,full_model_name,successful_persuasions,minority_opportunities,success_rate
+gemini-2.0-flash-001,google/gemini-2.0-flash-001,81,433,0.18706697459584296
+llama-3.3-70b-instruct,meta-llama/llama-3.3-70b-instruct,39,293,0.13310580204778158
+qwen-2.5-72b-instruct,qwen/qwen-2.5-72b-instruct,38,342,0.1111111111111111
+claude-3-haiku,anthropic/claude-3-haiku,16,700,0.022857142857142857
+gpt-4o-mini,openai/gpt-4o-mini,2,367,0.005449591280653951
