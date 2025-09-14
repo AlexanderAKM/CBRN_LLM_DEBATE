@@ -92,6 +92,7 @@ python cbrn_debate.py [OPTIONS]
 - `--seed N` - Random seed for reproducibility (default: 9216)
 - `--parallel N` - Questions to process in parallel (default: 15)
 - `--limit N` - Limit number of questions for testing
+- `--results-dir DIR` - Directory to save results (default: "results")
 
 **Example Usage:**
 ```bash
@@ -106,6 +107,9 @@ python cbrn_debate.py --consensus-threshold 0.8
 
 # Limit to 3 rounds maximum
 python cbrn_debate.py --max-rounds 3
+
+# Save results in a specific directory
+python cbrn_debate.py --results-dir results_exp1
 ```
 
 ## Default Models
@@ -140,8 +144,8 @@ The system uses these 5 diverse AI models by default:
 The system generates:
 
 1. **Console logs**: Real-time progress and summaries
-2. **Log file**: `cbrn_debate_YYYYMMDD_HHMMSS.log` - Complete debate logs
-3. **Results JSON**: `debate_results_YYYYMMDD_HHMMSS.json` - Structured data including:
+2. **Log file**: `logs/cbrn_debate_YYYYMMDD_HHMMSS.log` - Complete debate logs
+3. **Results JSON**: `<results_dir>/debate_results_YYYYMMDD_HHMMSS.json` - Structured data including:
    - All questions and correct answers
    - Individual vs collective responses
    - Complete debate history with explanations
