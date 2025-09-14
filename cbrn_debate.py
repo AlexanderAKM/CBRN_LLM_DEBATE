@@ -99,6 +99,9 @@ class OpenRouterClient:
                     await asyncio.sleep(1)  # Wait 1 second before retry
                 else:
                     raise e
+        
+        # If we get here, all retries failed
+        raise Exception(f"All {max_retries} attempts failed for {model}")
 
 
 class CBRNDebate:
